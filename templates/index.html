@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HealthBot AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = { darkMode: 'class' }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .dark ::-webkit-scrollbar-thumb { background: #475569; }
+        
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .message-fade-in { animation: fadeIn 0.3s ease-out forwards; }
+        @keyframes popIn { 0% { opacity: 0; transform: scale(0.95); } 100% { opacity: 1; transform: scale(1); } }
+        .modal-animate { animation: popIn 0.2s ease-out forwards; }
+        
+        @keyframes pulse-red {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        .listening { animation: pulse-red 1.5s infinite; color: #ef4444 !important; border-color: #ef4444 !important; }
+
+        .typing-dot { width: 6px; height: 6px; background-color: #9ca3af; border-radius: 50%; animation: bounce 1.4s infinite ease-in-out both; }
+        .typing-dot:nth-child(1) { animation-delay: -0.32s; }
+        .typing-dot:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
+    </style>
+</head>
+<body class="bg-gray-50 dark:bg-slate-900 h-screen flex flex-col md:flex-row text-gray-800 dark:text-gray-100 antialiased overflow-hidden transition-colors duration-300">
+
+    <div class="md:hidden flex items-center justify-between bg-[#1e293b] dark:bg-slate-950 text-white p-4 shadow-md z-30">
+        <div class="flex items-center gap-2">
+            <div class="w-8 h-8 bg-teal-500 rounded-lg flex items-center justify-center">
+                <i class="fa-solid fa-heart-pulse text-white text-sm"></i>
+            </div>
+            <span class="font-bold text-lg tracking-wide">HealthBot</span>
+        </div>
+        <button onclick="toggleSidebar()" class="text-gray-300 hover:text-white focus:outline-none">
+            <i class="fa-solid fa-bars text-xl"></i>
+        </button>
+    </div>
+
+    <div id="sidebar-overlay" onclick="toggleSidebar()" class="fixed inset-0 bg-black/50 z-40 hidden md:hidden glass transition-opacity opacity-0"></div>
+
+    <div id="sidebar" class="fixed inset-y-0 left-0 w-72 bg-[#1e293b] dark:bg-slate-950 text-white flex flex-col shadow-2xl z-50 transform -translate-x-full md:relative md:translate-x-0 transition-transform duration-300 ease-in-out md:w-80">
+        
+        <div class="p-6 border-b border-gray-700 flex items-center gap-3 justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-teal-500 rounded-xl flex items-center justify-center shadow-lg">
+                    <i class="fa-solid fa-heart-pulse text-white text-lg"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold tracking-wide">HealthBot</h1>
+                    <p class="text-xs text-gray-400 font-medium">{{ user_name }}</p>
+                </div>
+            </div>
+            <button onclick="toggleTheme()" class="w-8 h-8 rounded-full bg-gray-700 hover:bg-gray-600 flex items-center justify-center transition text-yellow-400">
+                <i id="theme-icon" class="fa-solid fa-moon"></i>
+            </button>
+            <button onclick="toggleSidebar()" class="md:hidden text-gray-400 hover:text-white">
+                <i class="fa-solid fa-xmark text-xl"></i>
+            </button>
+        </div>
+
+        <div class="p-4">
+            <button onclick="createNewChat()" class="w-full bg-teal-600 hover:bg-teal-500 text-white font-medium py-3 px-4 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 transform active:scale-95">
+                <i class="fa-solid fa-plus"></i> New Consultation
+            </button>
+        </div>
+
+        <div class="flex-1 overflow-y-auto px-3 py-2 space-y-1" id="session-list">
+            <p class="text-xs text-gray-500 font-semibold uppercase px-4 mb-3 tracking-wider">Recent History</p>
+            {% for session in sessions %}
+            <div id="session-{{ session.id }}" class="group relative flex items-center justify-between p-3 rounded-xl cursor-pointer hover:bg-gray-700/50 transition-colors" onclick="loadChat({{ session.id }})">
+                <div class="flex items-center gap-3 overflow-hidden">
+                    <i class="fa-regular fa-message text-gray-500 group-hover:text-teal-400 transition-colors"></i>
+                    <span id="title-{{ session.id }}" class="text-sm font-medium text-gray-300 truncate w-40">{{ session.title }}</span>
+                </div>
+                <button onclick="openDeleteModal(event, {{ session.id }})" class="absolute right-2 text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-2">
+                    <i class="fa-solid fa-trash-can"></i>
+                </button>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="p-4 border-t border-gray-700 bg-[#1e293b] dark:bg-slate-950">
+            <a href="/logout" class="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-700/50 transition text-gray-400 hover:text-white">
+                <i class="fa-solid fa-right-from-bracket"></i> <span class="text-sm font-medium">Log Out</span>
+            </a>
+        </div>
+    </div>
+
+    <div class="flex-1 flex flex-col h-full relative bg-white dark:bg-slate-900 transition-colors duration-300 min-w-0">
+        
+        <div id="chat-box" class="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 scroll-smooth">
+            <div id="welcome-screen" class="h-full flex flex-col items-center justify-center text-center opacity-0 animate-[fadeIn_0.5s_ease-out_forwards]">
+                <div class="w-20 h-20 bg-teal-50 dark:bg-slate-800 rounded-full flex items-center justify-center mb-6">
+                    <i class="fa-solid fa-user-doctor text-4xl text-teal-600 dark:text-teal-400"></i>
+                </div>
+                <h2 class="text-3xl font-bold text-gray-800 dark:text-white mb-2">How are you feeling?</h2>
+                <p class="text-gray-500 dark:text-gray-400 max-w-md">I can help diagnose symptoms, give advice, and track your health history.</p>
+            </div>
+        </div>
+
+        <div id="typing-indicator" class="hidden absolute bottom-24 left-8 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 px-4 py-3 rounded-2xl rounded-tl-none shadow-sm items-center gap-1 w-fit z-20">
+            <div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>
+        </div>
+
+        <div class="w-full bg-white dark:bg-slate-900 border-t border-gray-100 dark:border-slate-800 p-4 md:p-6 transition-colors duration-300 z-30">
+            <div class="max-w-4xl mx-auto relative flex gap-2 items-center">
+                
+                <button id="mic-btn" onclick="toggleVoice()" class="w-12 h-12 rounded-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-slate-800 text-gray-500 dark:text-gray-400 hover:text-teal-600 dark:hover:text-teal-400 transition-all flex items-center justify-center shadow-sm disabled:opacity-50" disabled>
+                    <i class="fa-solid fa-microphone"></i>
+                </button>
+
+                <div class="relative flex-1">
+                    <input type="text" id="user-input" class="w-full bg-gray-100 dark:bg-slate-800 border-0 rounded-full pl-6 pr-14 py-4 focus:ring-2 focus:ring-teal-500/50 focus:bg-white dark:focus:bg-slate-800 transition-all shadow-inner text-gray-700 dark:text-gray-200 font-medium placeholder-gray-400" placeholder="Type or speak symptoms..." onkeypress="handleEnter(event)" disabled>
+                    
+                    <button id="send-btn" onclick="sendMessage()" class="absolute right-2 top-2 bg-teal-600 hover:bg-teal-700 text-white rounded-full w-10 h-10 transition-all shadow-md flex items-center justify-center disabled:opacity-50" disabled>
+                        <i class="fa-solid fa-paper-plane text-xs"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="delete-modal" class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm hidden items-center justify-center z-50 transition-opacity opacity-0">
+        <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-6 w-full max-w-sm transform scale-95 transition-all" id="delete-modal-content">
+            <div class="text-center">
+                <div class="w-16 h-16 bg-red-100 dark:bg-red-900/30 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <i class="fa-solid fa-triangle-exclamation text-2xl"></i>
+                </div>
+                <h3 class="text-lg font-bold text-gray-800 dark:text-white mb-2">Delete Consultation?</h3>
+                <p class="text-sm text-gray-500 dark:text-gray-400 mb-6">This will permanently remove this chat history.</p>
+                <div class="flex gap-3 justify-center">
+                    <button onclick="closeDeleteModal()" class="px-5 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300 font-medium hover:bg-gray-50 dark:hover:bg-slate-700 transition">Cancel</button>
+                    <button onclick="confirmDelete()" class="px-5 py-2.5 rounded-xl bg-red-500 text-white font-medium hover:bg-red-600 shadow-lg shadow-red-500/30 transition">Delete</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentSessionId = null;
+        let deleteTargetId = null;
+        
+        let recognition;
+        let isListening = false;
+
+        // --- MOBILE SIDEBAR TOGGLE ---
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebar-overlay');
+            
+            if (sidebar.classList.contains('-translate-x-full')) {
+                // Open Sidebar
+                sidebar.classList.remove('-translate-x-full');
+                overlay.classList.remove('hidden');
+                setTimeout(() => overlay.classList.remove('opacity-0'), 10);
+            } else {
+                // Close Sidebar
+                sidebar.classList.add('-translate-x-full');
+                overlay.classList.add('opacity-0');
+                setTimeout(() => overlay.classList.add('hidden'), 300);
+            }
+        }
+
+        // --- VOICE LOGIC ---
+        if ('webkitSpeechRecognition' in window) {
+            recognition = new webkitSpeechRecognition();
+            recognition.continuous = false;
+            recognition.lang = 'en-US';
+
+            recognition.onstart = function() {
+                isListening = true;
+                let btn = document.getElementById("mic-btn");
+                btn.classList.add("listening");
+                btn.innerHTML = '<i class="fa-solid fa-microphone-lines"></i>';
+            };
+
+            recognition.onend = function() {
+                isListening = false;
+                let btn = document.getElementById("mic-btn");
+                btn.classList.remove("listening");
+                btn.innerHTML = '<i class="fa-solid fa-microphone"></i>';
+            };
+
+            recognition.onresult = function(event) {
+                let transcript = event.results[0][0].transcript;
+                let input = document.getElementById("user-input");
+                input.value = transcript;
+            };
+        } else {
+            document.getElementById("mic-btn").style.display = "none";
+        }
+
+        function toggleVoice() {
+            if (!recognition) { alert("Voice not supported."); return; }
+            if (isListening) recognition.stop();
+            else recognition.start();
+        }
+
+        // --- THEME LOGIC ---
+        function toggleTheme() {
+            const html = document.documentElement;
+            const icon = document.getElementById('theme-icon');
+            if (html.classList.contains('dark')) {
+                html.classList.remove('dark');
+                localStorage.setItem('theme', 'light');
+                icon.classList.remove('fa-sun');
+                icon.classList.add('fa-moon');
+            } else {
+                html.classList.add('dark');
+                localStorage.setItem('theme', 'dark');
+                icon.classList.remove('fa-moon');
+                icon.classList.add('fa-sun');
+            }
+        }
+
+        if (localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark');
+            document.getElementById('theme-icon').classList.remove('fa-moon');
+            document.getElementById('theme-icon').classList.add('fa-sun');
+        }
+
+        // --- MODAL LOGIC ---
+        function openDeleteModal(event, sessionId) {
+            event.stopPropagation();
+            deleteTargetId = sessionId;
+            let modal = document.getElementById('delete-modal');
+            let content = document.getElementById('delete-modal-content');
+            modal.classList.remove('hidden');
+            setTimeout(() => { modal.classList.remove('opacity-0'); content.classList.add('modal-animate'); }, 10);
+        }
+
+        function closeDeleteModal() {
+            let modal = document.getElementById('delete-modal');
+            modal.classList.add('opacity-0');
+            setTimeout(() => { modal.classList.add('hidden'); deleteTargetId = null; }, 200);
+        }
+
+        async function confirmDelete() {
+            if (!deleteTargetId) return;
+            await fetch(`/delete_chat/${deleteTargetId}`, { method: 'DELETE' });
+            let el = document.getElementById(`session-${deleteTargetId}`);
+            if (el) el.remove();
+            if (currentSessionId === deleteTargetId) window.location.reload();
+            closeDeleteModal();
+        }
+
+        async function createNewChat() {
+            let res = await fetch('/new_chat', { method: 'POST' });
+            window.location.reload(); 
+        }
+
+        async function loadChat(sessionId) {
+            currentSessionId = sessionId;
+            document.getElementById("user-input").disabled = false;
+            document.getElementById("send-btn").disabled = false;
+            document.getElementById("mic-btn").disabled = false;
+            
+            let welcomeScreen = document.getElementById("welcome-screen");
+            if (welcomeScreen) welcomeScreen.style.display = "none";
+
+            // Mobile: Close sidebar after selecting chat
+            if (window.innerWidth < 768) {
+                toggleSidebar();
+            }
+
+            document.querySelectorAll("#session-list > div").forEach(el => {
+                el.classList.remove("bg-slate-700", "border-l-4", "border-teal-500");
+                el.classList.add("hover:bg-gray-700/50");
+            });
+            let activeItem = document.getElementById(`session-${sessionId}`);
+            if(activeItem) {
+                activeItem.classList.remove("hover:bg-gray-700/50");
+                activeItem.classList.add("bg-slate-700", "border-l-4", "border-teal-500");
+            }
+
+            let chatBox = document.getElementById("chat-box");
+            chatBox.innerHTML = ""; 
+            let res = await fetch(`/get_chat_history/${sessionId}`);
+            let data = await res.json();
+            
+            if (data.messages.length === 0) {
+                addMessageToUI("Hello! How can I help you?", "bot", null, true);
+            } else {
+                data.messages.forEach(msg => addMessageToUI(msg.content, msg.sender, msg.options, false));
+            }
+        }
+
+        async function sendMessage(manualText = null) {
+            let input = document.getElementById("user-input");
+            let message = manualText || input.value;
+            if(!message || !currentSessionId) return;
+
+            addMessageToUI(message, 'user', null, true);
+            if(!manualText) input.value = "";
+            document.querySelectorAll(".option-btn").forEach(btn => btn.remove());
+
+            let typingIndicator = document.getElementById("typing-indicator");
+            typingIndicator.classList.remove("hidden");
+            typingIndicator.classList.add("flex");
+            let chatBox = document.getElementById("chat-box");
+            chatBox.scrollTop = chatBox.scrollHeight;
+
+            try {
+                let response = await fetch("/predict", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ message: message, session_id: currentSessionId })
+                });
+                let data = await response.json();
+                typingIndicator.classList.add("hidden");
+                typingIndicator.classList.remove("flex");
+                addMessageToUI(data.response, 'bot', data.options, true);
+                if(data.new_title) document.getElementById(`title-${currentSessionId}`).innerText = data.new_title;
+            } catch (error) {
+                typingIndicator.classList.add("hidden");
+                addMessageToUI("Error connecting to server.", 'bot');
+            }
+        }
+
+        function addMessageToUI(text, sender, options = null, animate = false) {
+            let chatBox = document.getElementById("chat-box");
+            let div = document.createElement("div");
+            div.className = sender === 'user' ? "flex justify-end mb-6" : "flex flex-col items-start mb-6 gap-2 max-w-[90%]";
+            if(animate) div.classList.add("message-fade-in");
+
+            let avatar = sender === 'bot' ? `<div class="w-8 h-8 rounded-full bg-teal-100 dark:bg-teal-900/50 flex items-center justify-center text-teal-600 dark:text-teal-400 mb-1 shadow-sm"><i class="fa-solid fa-user-doctor text-sm"></i></div>` : "";
+            
+            let bubble = document.createElement("div");
+            if (sender === 'user') {
+                bubble.className = "bg-teal-600 text-white px-5 py-3 rounded-2xl rounded-tr-none shadow-md text-[15px] leading-relaxed max-w-[85%]";
+            } else {
+                bubble.className = text.includes("<div") ? "w-full" : "bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-200 px-5 py-3 rounded-2xl rounded-tl-none shadow-sm border border-gray-100 dark:border-slate-700 text-[15px] leading-relaxed";
+            }
+            bubble.innerHTML = text;
+            
+            if(sender === 'bot') {
+                let botContainer = document.createElement("div");
+                botContainer.className = "flex gap-3 items-start";
+                botContainer.innerHTML = avatar;
+                botContainer.appendChild(bubble);
+                div.appendChild(botContainer);
+            } else {
+                div.appendChild(bubble);
+            }
+
+            if (sender === 'bot' && options && options.length > 0) {
+                let btnContainer = document.createElement("div");
+                btnContainer.className = "flex flex-wrap gap-2 ml-11 mt-2";
+                options.forEach(opt => {
+                    let btn = document.createElement("button");
+                    btn.innerHTML = opt;
+                    btn.className = "option-btn bg-white dark:bg-slate-800 hover:bg-teal-50 dark:hover:bg-slate-700 text-teal-700 dark:text-teal-400 border border-teal-200 dark:border-slate-600 px-4 py-2 rounded-full text-xs font-semibold transition-all shadow-sm";
+                    btn.onclick = () => sendMessage(opt); 
+                    btnContainer.appendChild(btn);
+                });
+                div.appendChild(btnContainer);
+            }
+
+            chatBox.appendChild(div);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function handleEnter(event) { if (event.key === "Enter") sendMessage(); }
+
+        window.onload = function() {
+           let firstSession = document.querySelector("#session-list > div");
+           if(firstSession) firstSession.click();
+        }
+    </script>
+</body>
+</html>
