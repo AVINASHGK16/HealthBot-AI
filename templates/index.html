@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
     <title>HealthBot AI</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -121,13 +121,13 @@
                     <i class="fa-solid fa-microphone"></i>
                 </button>
 
-                <div class="relative flex-1">
-                    <input type="text" id="user-input" class="w-full bg-gray-100 dark:bg-slate-800 border-0 rounded-full pl-6 pr-14 py-4 focus:ring-2 focus:ring-teal-500/50 focus:bg-white dark:focus:bg-slate-800 transition-all shadow-inner text-gray-700 dark:text-gray-200 font-medium placeholder-gray-400" placeholder="Type or speak symptoms..." onkeypress="handleEnter(event)" disabled>
+                <form class="relative flex-1" onsubmit="event.preventDefault(); sendMessage();">
+                    <input type="text" id="user-input" class="w-full bg-gray-100 dark:bg-slate-800 border-0 rounded-full pl-6 pr-14 py-4 focus:ring-2 focus:ring-teal-500/50 focus:bg-white dark:focus:bg-slate-800 transition-all shadow-inner text-gray-700 dark:text-gray-200 font-medium placeholder-gray-400" placeholder="Type or speak symptoms..." disabled>
                     
-                    <button id="send-btn" onclick="sendMessage()" class="absolute right-2 top-2 bg-teal-600 hover:bg-teal-700 text-white rounded-full w-10 h-10 transition-all shadow-md flex items-center justify-center disabled:opacity-50" disabled>
+                    <button type="submit" id="send-btn" class="absolute right-2 top-2 bg-teal-600 hover:bg-teal-700 text-white rounded-full w-10 h-10 transition-all shadow-md flex items-center justify-center disabled:opacity-50" disabled>
                         <i class="fa-solid fa-paper-plane text-xs"></i>
                     </button>
-                </div>
+                </form>
             </div>
         </div>
     </div>
@@ -151,48 +151,39 @@
     <script>
         let currentSessionId = null;
         let deleteTargetId = null;
-        
         let recognition;
         let isListening = false;
 
-        // --- MOBILE SIDEBAR TOGGLE ---
         function toggleSidebar() {
             const sidebar = document.getElementById('sidebar');
             const overlay = document.getElementById('sidebar-overlay');
-            
             if (sidebar.classList.contains('-translate-x-full')) {
-                // Open Sidebar
                 sidebar.classList.remove('-translate-x-full');
                 overlay.classList.remove('hidden');
                 setTimeout(() => overlay.classList.remove('opacity-0'), 10);
             } else {
-                // Close Sidebar
                 sidebar.classList.add('-translate-x-full');
                 overlay.classList.add('opacity-0');
                 setTimeout(() => overlay.classList.add('hidden'), 300);
             }
         }
 
-        // --- VOICE LOGIC ---
         if ('webkitSpeechRecognition' in window) {
             recognition = new webkitSpeechRecognition();
             recognition.continuous = false;
             recognition.lang = 'en-US';
-
             recognition.onstart = function() {
                 isListening = true;
                 let btn = document.getElementById("mic-btn");
                 btn.classList.add("listening");
                 btn.innerHTML = '<i class="fa-solid fa-microphone-lines"></i>';
             };
-
             recognition.onend = function() {
                 isListening = false;
                 let btn = document.getElementById("mic-btn");
                 btn.classList.remove("listening");
                 btn.innerHTML = '<i class="fa-solid fa-microphone"></i>';
             };
-
             recognition.onresult = function(event) {
                 let transcript = event.results[0][0].transcript;
                 let input = document.getElementById("user-input");
@@ -208,7 +199,6 @@
             else recognition.start();
         }
 
-        // --- THEME LOGIC ---
         function toggleTheme() {
             const html = document.documentElement;
             const icon = document.getElementById('theme-icon');
@@ -231,7 +221,6 @@
             document.getElementById('theme-icon').classList.add('fa-sun');
         }
 
-        // --- MODAL LOGIC ---
         function openDeleteModal(event, sessionId) {
             event.stopPropagation();
             deleteTargetId = sessionId;
@@ -270,7 +259,6 @@
             let welcomeScreen = document.getElementById("welcome-screen");
             if (welcomeScreen) welcomeScreen.style.display = "none";
 
-            // Mobile: Close sidebar after selecting chat
             if (window.innerWidth < 768) {
                 toggleSidebar();
             }
@@ -372,11 +360,14 @@
             chatBox.scrollTop = chatBox.scrollHeight;
         }
 
-        function handleEnter(event) { if (event.key === "Enter") sendMessage(); }
-
+        // FIX 3: Auto-start chat if history is empty (fixes disabled input on mobile)
         window.onload = function() {
            let firstSession = document.querySelector("#session-list > div");
-           if(firstSession) firstSession.click();
+           if(firstSession) {
+               firstSession.click();
+           } else {
+               createNewChat();
+           }
         }
     </script>
 </body>
