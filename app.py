@@ -356,6 +356,13 @@ def download_report(session_id):
 def predict():
     data = request.get_json()
     user_text = data.get('message', '')
+    
+    # --- ADD THIS DEBUG BLOCK ---
+    print(f"DEBUG: User said: {user_text}")
+    # ----------------------------
+    
+    # ... rest of your code ...:
+    
     session_id = data.get('session_id')
     
     chat_session = ChatSession.query.get(session_id)
@@ -366,42 +373,36 @@ def predict():
     user_msg = ChatMessage(session_id=session_id, sender='user', content=user_text)
     db.session.add(user_msg)
     
+    # ... inside predict() ...
+
     # 2. Extract Symptoms
     current_symptoms = json.loads(chat_session.collected_symptoms)
+    new_symptoms = [] # Start empty
     
-    # --- FIX START: Handle Tuple vs List ---
+    # Run the extractor
     raw_result = extract_symptoms(user_text)
-    
-    # Check if the result is a tuple (e.g., (None, ['fever'])) or just a list
     if isinstance(raw_result, tuple):
-        # Find which part of the tuple is the list
-        if isinstance(raw_result[0], list):
-            new_symptoms = raw_result[0]
-        elif len(raw_result) > 1 and isinstance(raw_result[1], list):
-            new_symptoms = raw_result[1]
-        else:
-            new_symptoms = []
+        new_symptoms = raw_result[0] if isinstance(raw_result[0], list) else []
     else:
-        # It's already a list (or None)
         new_symptoms = raw_result if raw_result else []
-    # --- FIX END ---
 
-    # --- ANSWER MAPPER (The logic we added earlier) ---
+    # --- STRONG DEBUG ANSWER MAPPER ---
     user_lower = user_text.lower()
-    
+    print(f"DEBUG: Checking keywords in '{user_lower}'") # See this in terminal
+
     if "sinus" in user_lower:
-        if "sinus_pressure" not in current_symptoms:
-            new_symptoms.append("sinus_pressure")
+        print("DEBUG: Found keyword SINUS -> Adding sinus_pressure")
+        new_symptoms.append("sinus_pressure")
             
     elif "migraine" in user_lower:
-        if "visual_disturbances" not in current_symptoms:
-            new_symptoms.append("visual_disturbances")
-        if "irritability" not in current_symptoms:
-            new_symptoms.append("irritability")
+        print("DEBUG: Found keyword MIGRAINE")
+        new_symptoms.append("visual_disturbances")
+        new_symptoms.append("irritability")
 
     elif "back of head" in user_lower:
-        if "stiff_neck" not in current_symptoms:
-            new_symptoms.append("stiff_neck")
+        print("DEBUG: Found keyword BACK OF HEAD")
+        new_symptoms.append("stiff_neck")
+    # ----------------------------------
     # ---------------------------
     
     # Merge and Save
@@ -499,8 +500,8 @@ def predict():
                     </div>
 
                     <div class="mt-4 flex gap-2">
-                        <a href="geo:0,0?q=doctors+near+me" target="_blank" class="flex-1 bg-teal-600 hover:bg-teal-700 text-white text-center py-2 rounded-lg text-sm font-semibold transition shadow-sm">
-                            <i class="fa-solid fa-user-doctor mr-1"></i> Find Doctor
+                        <a href="https://www.google.com/maps/search/?api=1&query=doctors+near+me" target="_blank"  class="flex-1 bg-teal-600 hover:bg-teal-700 text-white text-center py-2 rounded-lg text-sm font-semibold transition shadow-sm">
+                             <i class="fa-solid fa-user-doctor mr-1"></i> Find Doctor
                         </a>
                         <a href="{info['link']}" target="_blank" class="flex-1 bg-[#1e293b] hover:bg-black text-white text-center py-2 rounded-lg text-sm font-semibold transition shadow-sm">
                             <i class="fa-solid fa-book-medical mr-1"></i> Read More
