@@ -356,14 +356,10 @@ def download_report(session_id):
 def predict():
     data = request.get_json()
     user_text = data.get('message', '')
-    
-    # --- ADD THIS DEBUG BLOCK ---
-    print(f"DEBUG: User said: {user_text}")
-    # ----------------------------
-    
-    # ... rest of your code ...:
-    
     session_id = data.get('session_id')
+    
+    # --- DEBUG LINE ---
+    print(f"DEBUG: User said: {user_text}")
     
     chat_session = ChatSession.query.get(session_id)
     if not chat_session:
@@ -373,22 +369,26 @@ def predict():
     user_msg = ChatMessage(session_id=session_id, sender='user', content=user_text)
     db.session.add(user_msg)
     
-    # ... inside predict() ...
-
     # 2. Extract Symptoms
     current_symptoms = json.loads(chat_session.collected_symptoms)
-    new_symptoms = [] # Start empty
+    new_symptoms = [] 
     
-    # Run the extractor
+    # --- FIX 1: TUPLE ERROR FIX ---
     raw_result = extract_symptoms(user_text)
     if isinstance(raw_result, tuple):
-        new_symptoms = raw_result[0] if isinstance(raw_result[0], list) else []
+        # Extract the list from the tuple if it exists
+        if len(raw_result) > 0 and isinstance(raw_result[0], list):
+             new_symptoms = raw_result[0]
+        elif len(raw_result) > 1 and isinstance(raw_result[1], list):
+             new_symptoms = raw_result[1]
+        else:
+             new_symptoms = []
     else:
         new_symptoms = raw_result if raw_result else []
 
-    # --- STRONG DEBUG ANSWER MAPPER ---
+    # --- FIX 2: ANSWER MAPPER (KEYWORD MAPPING) ---
     user_lower = user_text.lower()
-    print(f"DEBUG: Checking keywords in '{user_lower}'") # See this in terminal
+    print(f"DEBUG: Checking keywords in '{user_lower}'") 
 
     if "sinus" in user_lower:
         print("DEBUG: Found keyword SINUS -> Adding sinus_pressure")
@@ -403,7 +403,6 @@ def predict():
         print("DEBUG: Found keyword BACK OF HEAD")
         new_symptoms.append("stiff_neck")
     # ----------------------------------
-    # ---------------------------
     
     # Merge and Save
     if new_symptoms:
@@ -424,11 +423,15 @@ def predict():
         # Check for clarifying questions
         next_q = get_next_question(current_symptoms)
         
-        if next_q and chat_session.status != 'diagnosed':
+        # --- FIX 3: FORCE DIAGNOSIS (BREAK INFINITE LOOP) ---
+        force_predict = False
+        if "sinus_pressure" in current_symptoms or "visual_disturbances" in current_symptoms or "stiff_neck" in current_symptoms:
+            force_predict = True
+        # ----------------------------------------------------
+
+        if next_q and chat_session.status != 'diagnosed' and not force_predict:
+            # Ask the next question
             question, opts, tag = next_q
-            # Check if we already asked this (simple check: implies we need state tracking, 
-            # for now, we assume if symptoms are present, we skip. 
-            # In a pro app, we'd track 'questions_asked' list.)
             bot_response = question
             options = opts.split(',')
         
@@ -455,7 +458,7 @@ def predict():
                 # Get Educational Info
                 info = get_disease_details(prediction)
                 
-                # --- GENERATE THE CARD WITH DISCLAIMER ---
+                # --- FIX 4: GENERATE CARD WITH MOBILE-FRIENDLY MAP LINK ---
                 bot_response = f"""
                 <div class="bg-teal-50 dark:bg-slate-700/50 p-4 rounded-xl border border-teal-100 dark:border-slate-600 mb-2">
                     <div class="flex items-center gap-3 mb-3 border-b border-teal-200 dark:border-slate-600 pb-2">
