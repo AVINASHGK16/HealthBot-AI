@@ -368,8 +368,43 @@ def predict():
     
     # 2. Extract Symptoms
     current_symptoms = json.loads(chat_session.collected_symptoms)
-    new_symptoms = extract_symptoms(user_text)
     
+    # --- FIX START: Handle Tuple vs List ---
+    raw_result = extract_symptoms(user_text)
+    
+    # Check if the result is a tuple (e.g., (None, ['fever'])) or just a list
+    if isinstance(raw_result, tuple):
+        # Find which part of the tuple is the list
+        if isinstance(raw_result[0], list):
+            new_symptoms = raw_result[0]
+        elif len(raw_result) > 1 and isinstance(raw_result[1], list):
+            new_symptoms = raw_result[1]
+        else:
+            new_symptoms = []
+    else:
+        # It's already a list (or None)
+        new_symptoms = raw_result if raw_result else []
+    # --- FIX END ---
+
+    # --- ANSWER MAPPER (The logic we added earlier) ---
+    user_lower = user_text.lower()
+    
+    if "sinus" in user_lower:
+        if "sinus_pressure" not in current_symptoms:
+            new_symptoms.append("sinus_pressure")
+            
+    elif "migraine" in user_lower:
+        if "visual_disturbances" not in current_symptoms:
+            new_symptoms.append("visual_disturbances")
+        if "irritability" not in current_symptoms:
+            new_symptoms.append("irritability")
+
+    elif "back of head" in user_lower:
+        if "stiff_neck" not in current_symptoms:
+            new_symptoms.append("stiff_neck")
+    # ---------------------------
+    
+    # Merge and Save
     if new_symptoms:
         for s in new_symptoms:
             if s not in current_symptoms:
@@ -464,7 +499,7 @@ def predict():
                     </div>
 
                     <div class="mt-4 flex gap-2">
-                        <a href="https://www.google.com/search?q=doctors+near+me" target="_blank" class="flex-1 bg-teal-600 hover:bg-teal-700 text-white text-center py-2 rounded-lg text-sm font-semibold transition shadow-sm">
+                        <a href="geo:0,0?q=doctors+near+me" target="_blank" class="flex-1 bg-teal-600 hover:bg-teal-700 text-white text-center py-2 rounded-lg text-sm font-semibold transition shadow-sm">
                             <i class="fa-solid fa-user-doctor mr-1"></i> Find Doctor
                         </a>
                         <a href="{info['link']}" target="_blank" class="flex-1 bg-[#1e293b] hover:bg-black text-white text-center py-2 rounded-lg text-sm font-semibold transition shadow-sm">
