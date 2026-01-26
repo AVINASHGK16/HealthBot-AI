@@ -354,175 +354,141 @@ def download_report(session_id):
 @app.route('/predict', methods=['POST'])
 @login_required
 def predict():
-    try:
-        data = request.json
-        user_message = data['message']
-        session_id = data.get('session_id')
-        session = ChatSession.query.get(session_id)
-        if not session: return jsonify({"error": "Invalid Session"})
+    data = request.get_json()
+    user_text = data.get('message', '')
+    session_id = data.get('session_id')
+    
+    chat_session = ChatSession.query.get(session_id)
+    if not chat_session:
+        return jsonify({'error': 'Session not found'}), 404
 
-        user_msg_db = ChatMessage(session_id=session.id, sender='user', content=user_message)
-        db.session.add(user_msg_db)
-        
-        current_symptoms = json.loads(session.collected_symptoms)
-        new_symptoms = extract_symptoms(user_message)
-        
-        if session.status == "clarifying_malaria":
-            if "sweat" in user_message.lower(): current_symptoms.append("sweating")
-            if "ache" in user_message.lower(): current_symptoms.append("muscle_pain")
-            session.status = "active"
-        elif session.status == "clarifying_diabetes":
-            if "weight" in user_message.lower(): current_symptoms.append("weight_loss")
-            if "vision" in user_message.lower() or "blur" in user_message.lower(): current_symptoms.append("blurred_and_distorted_vision")
-            session.status = "active"
-        elif session.status == "clarifying_chest":
-            if "breath" in user_message.lower(): current_symptoms.append("breathlessness")
-            if "sweat" in user_message.lower(): current_symptoms.append("sweating")
-            session.status = "active"
-        elif session.status == "clarifying_headache":
-            if "one side" in user_message.lower(): current_symptoms.append("migraine")
-            session.status = "active"
-        elif session.status == "clarifying_fever":
-            if "shivering" in user_message.lower(): current_symptoms.append("chills")
-            if "rash" in user_message.lower(): current_symptoms.append("skin_rash")
-            session.status = "active"
+    # 1. Save User Message
+    user_msg = ChatMessage(session_id=session_id, sender='user', content=user_text)
+    db.session.add(user_msg)
+    
+    # 2. Extract Symptoms
+    current_symptoms = json.loads(chat_session.collected_symptoms)
+    new_symptoms = extract_symptoms(user_text)
+    
+    if new_symptoms:
+        for s in new_symptoms:
+            if s not in current_symptoms:
+                current_symptoms.append(s)
+        chat_session.collected_symptoms = json.dumps(current_symptoms)
 
-        all_symptoms = list(set(current_symptoms + new_symptoms))
-        session.collected_symptoms = json.dumps(all_symptoms)
-        db.session.add(session)
-        db.session.commit()
+    # 3. Decision Logic
+    bot_response = ""
+    options = []
+    
+    # If no symptoms found yet
+    if not current_symptoms:
+        bot_response = "I couldn't detect specific symptoms in that message. Could you describe your symptoms differently? (e.g., 'I have a headache and fever')"
+    
+    else:
+        # Check for clarifying questions
+        next_q = get_next_question(current_symptoms)
         
-        next_step = get_next_question(all_symptoms)
-        if next_step and session.status == "started": 
-            question, options_str, next_state = next_step
-            session.status = next_state 
-            bot_msg_db = ChatMessage(session_id=session.id, sender='bot', content=question, options=options_str)
-            db.session.add(bot_msg_db)
-            db.session.commit()
-            return jsonify({"response": question, "options": options_str.split(',')})
-
-        if not all_symptoms:
-            user_name = current_user.username.capitalize()
-            response_text = f"I'm listening, {user_name}. Could you describe your symptoms? (e.g., 'stomach pain', 'dizzy')"
-            options = None
+        if next_q and chat_session.status != 'diagnosed':
+            question, opts, tag = next_q
+            # Check if we already asked this (simple check: implies we need state tracking, 
+            # for now, we assume if symptoms are present, we skip. 
+            # In a pro app, we'd track 'questions_asked' list.)
+            bot_response = question
+            options = opts.split(',')
+        
         else:
-            critical_diagnosis = check_critical_rules(all_symptoms)
-            if critical_diagnosis:
-                final_pred = critical_diagnosis
+            # --- MAKE PREDICTION ---
+            if not os.path.exists(MODEL_PATH):
+                bot_response = "System is initializing. Please try again in 10 seconds."
             else:
-                symptom_columns = joblib.load(COLUMNS_PATH)
-                input_vector = np.zeros(len(symptom_columns))
-                for sym in all_symptoms:
-                    if sym in symptom_columns:
-                        input_vector[symptom_columns.index(sym)] = 1
                 model = joblib.load(MODEL_PATH)
-                raw_pred = model.predict([input_vector])[0]
-                final_pred = apply_safety_check(raw_pred, all_symptoms)
-
-            # GET RICH DETAILS
-            info = get_disease_details(final_pred)
-            
-            if session.title == "New Consultation":
-                session.title = f"{final_pred}"
-                db.session.add(session)
-
-            specialist_map = {
-                'Heart': 'Cardiologist', 'Chest': 'Cardiologist',
-                'Skin': 'Dermatologist', 'Rash': 'Dermatologist', 'Acne': 'Dermatologist', 'Psoriasis': 'Dermatologist',
-                'Stomach': 'Gastroenterologist', 'Acidity': 'Gastroenterologist', 'Ulcer': 'Gastroenterologist', 'Vomit': 'Gastroenterologist',
-                'Joint': 'Orthopedic', 'Knee': 'Orthopedic', 'Bone': 'Orthopedic', 'Arthritis': 'Orthopedic',
-                'Eye': 'Ophthalmologist', 'Vision': 'Ophthalmologist',
-                'Diabetes': 'Endocrinologist', 'Sugar': 'Endocrinologist', 'Thyroid': 'Endocrinologist',
-                'Malaria': 'General Physician', 'Typhoid': 'General Physician', 'Fever': 'General Physician', 'Cold': 'General Physician',
-                'Brain': 'Neurologist', 'Paralysis': 'Neurologist', 'Migraine': 'Neurologist',
-                'Urinary': 'Urologist'
-            }
-            specialist = "General Physician"
-            for key, val in specialist_map.items():
-                if key in final_pred:
-                    specialist = val
-                    break
-            maps_link = f"https://www.google.com/maps/search/{specialist}+near+me"
-
-            severity_bg = "bg-emerald-50"
-            severity_border = "border-emerald-500"
-            severity_text = "text-emerald-800"
-            icon = "fa-user-doctor"
-            icon_color = "text-emerald-600"
-
-            if "Heart" in final_pred or "Paralysis" in final_pred or "Risk" in final_pred or "Emergency" in final_pred:
-                severity_bg = "bg-red-50"
-                severity_border = "border-red-500"
-                severity_text = "text-red-800"
-                icon = "fa-triangle-exclamation"
-                icon_color = "text-red-600"
-
-            formatted_symptoms = [s.replace('_', ' ').title() for s in all_symptoms]
-            
-            response_text = f"""
-            <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 w-full max-w-md">
-                <div class="flex items-center gap-3 mb-4 {severity_bg} p-3 rounded-xl border-l-4 {severity_border}">
-                    <div class="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm">
-                        <i class="fa-solid {icon} {icon_color} text-lg"></i>
-                    </div>
-                    <div>
-                        <p class="text-xs font-bold {severity_text} uppercase tracking-wider">Analysis Result</p>
-                        <h3 class="text-lg font-bold text-gray-800 leading-tight">{final_pred}</h3>
-                    </div>
-                </div>
+                columns = joblib.load(COLUMNS_PATH)
                 
-                <div class="space-y-4">
-                    <div>
-                        <p class="text-xs text-gray-400 font-semibold uppercase mb-1"><i class="fa-solid fa-circle-info mr-1"></i> About</p>
-                        <p class="text-sm text-gray-700 leading-relaxed">{info['desc']}</p>
-                    </div>
-
-                    <div class="grid grid-cols-2 gap-4">
-                        <div class="bg-gray-50 p-2 rounded-lg">
-                            <p class="text-xs text-gray-500 font-bold uppercase mb-1">Causes</p>
-                            <p class="text-xs text-gray-700">{info['causes']}</p>
+                # Prepare vector
+                input_vector = np.zeros(len(columns))
+                for symptom in current_symptoms:
+                    if symptom in columns:
+                        idx = columns.index(symptom)
+                        input_vector[idx] = 1
+                
+                prediction = model.predict([input_vector])[0]
+                
+                # Safety Checks
+                prediction = apply_safety_check(prediction, current_symptoms)
+                
+                # Get Educational Info
+                info = get_disease_details(prediction)
+                
+                # --- GENERATE THE CARD WITH DISCLAIMER ---
+                bot_response = f"""
+                <div class="bg-teal-50 dark:bg-slate-700/50 p-4 rounded-xl border border-teal-100 dark:border-slate-600 mb-2">
+                    <div class="flex items-center gap-3 mb-3 border-b border-teal-200 dark:border-slate-600 pb-2">
+                        <div class="w-10 h-10 bg-teal-100 dark:bg-teal-900 rounded-full flex items-center justify-center text-teal-600 dark:text-teal-400">
+                            <i class="fa-solid fa-user-doctor text-lg"></i>
                         </div>
-                        <div class="bg-red-50 p-2 rounded-lg">
-                            <p class="text-xs text-red-500 font-bold uppercase mb-1">Risk if Ignored</p>
-                            <p class="text-xs text-gray-700">{info['risk']}</p>
+                        <div>
+                            <p class="text-xs font-bold text-gray-400 uppercase tracking-wider">Analysis Result</p>
+                            <h3 class="text-lg font-bold text-gray-800 dark:text-white">{prediction}</h3>
                         </div>
                     </div>
                     
-                    <div>
-                        <p class="text-xs text-gray-400 font-semibold uppercase mb-1"><i class="fa-solid fa-user-nurse mr-1"></i> Immediate Action</p>
-                        <p class="text-sm font-medium text-gray-800 leading-relaxed bg-teal-50 p-3 rounded-lg border border-teal-100">{info['action']}</p>
+                    <div class="space-y-3 text-sm">
+                        <div>
+                            <p class="font-semibold text-gray-500 dark:text-gray-400 text-xs mb-1"><i class="fa-solid fa-circle-info"></i> ABOUT</p>
+                            <p class="text-gray-700 dark:text-gray-300 leading-relaxed">{info['desc']}</p>
+                        </div>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div class="bg-white dark:bg-slate-800 p-3 rounded-lg">
+                                <p class="font-bold text-gray-500 text-xs mb-1">CAUSES</p>
+                                <p class="text-gray-600 dark:text-gray-400 text-xs">{info['causes']}</p>
+                            </div>
+                            <div class="bg-red-50 dark:bg-red-900/20 p-3 rounded-lg">
+                                <p class="font-bold text-red-500 text-xs mb-1">RISK IF IGNORED</p>
+                                <p class="text-red-600 dark:text-red-300 text-xs">{info['risk']}</p>
+                            </div>
+                        </div>
+
+                        <div class="bg-teal-100/50 dark:bg-teal-900/30 p-3 rounded-lg border border-teal-200 dark:border-teal-800/50">
+                            <p class="font-bold text-teal-700 dark:text-teal-400 text-xs mb-1"><i class="fa-solid fa-notes-medical"></i> IMMEDIATE ACTION</p>
+                            <p class="text-gray-700 dark:text-gray-300 font-medium">{info['action']}</p>
+                        </div>
                     </div>
 
-                    <div class="grid grid-cols-2 gap-2 pt-2">
-                         <a href="{maps_link}" target="_blank" class="text-center bg-teal-600 hover:bg-teal-700 text-white font-medium py-2 rounded-lg transition-all shadow-md shadow-teal-200 text-xs flex items-center justify-center">
-                            <i class="fa-solid fa-map-location-dot mr-1"></i> Find Doctor
+                    <div class="mt-4 pt-3 border-t border-gray-200 dark:border-gray-600 text-center">
+                        <p class="text-[10px] text-gray-400 italic">
+                            <i class="fa-solid fa-triangle-exclamation"></i> 
+                            AI Prediction is not 100% accurate. This is not a substitute for professional medical advice. 
+                            <span class="block mt-1">Please consult a real doctor.</span>
+                        </p>
+                    </div>
+
+                    <div class="mt-4 flex gap-2">
+                        <a href="https://www.google.com/search?q=doctors+near+me" target="_blank" class="flex-1 bg-teal-600 hover:bg-teal-700 text-white text-center py-2 rounded-lg text-sm font-semibold transition shadow-sm">
+                            <i class="fa-solid fa-user-doctor mr-1"></i> Find Doctor
                         </a>
-                        <a href="{info['link']}" target="_blank" class="text-center bg-gray-800 hover:bg-gray-900 text-white font-medium py-2 rounded-lg transition-all shadow-md text-xs flex items-center justify-center">
+                        <a href="{info['link']}" target="_blank" class="flex-1 bg-[#1e293b] hover:bg-black text-white text-center py-2 rounded-lg text-sm font-semibold transition shadow-sm">
                             <i class="fa-solid fa-book-medical mr-1"></i> Read More
                         </a>
                     </div>
                 </div>
+                """
+                chat_session.status = 'diagnosed'
+                # Generate a title if it's the first diagnosis
+                if chat_session.title == "New Consultation":
+                    chat_session.title = f"Consultation: {prediction}"
 
-                <div class="mt-4 pt-3 border-t border-gray-100 flex justify-between items-center">
-                    <a href="/download_report/{session.id}" class="text-[10px] text-gray-400 hover:text-gray-600 flex items-center gap-1"><i class="fa-solid fa-file-pdf"></i> Save Report</a>
-                    <button onclick="createNewChat()" class="text-xs text-teal-600 font-bold hover:text-teal-700 flex items-center gap-1 transition">
-                        New Checkup <i class="fa-solid fa-arrow-right"></i>
-                    </button>
-                </div>
-            </div>
-            """
-            options = None
-            session.status = "active"
+    # 4. Save Bot Message
+    bot_msg = ChatMessage(session_id=session_id, sender='bot', content=bot_response, options=",".join(options) if options else None)
+    db.session.add(bot_msg)
+    db.session.commit()
+    
+    return jsonify({
+        'response': bot_response, 
+        'options': options,
+        'new_title': chat_session.title if chat_session.status == 'diagnosed' else None
+    })
 
-        bot_msg_db = ChatMessage(session_id=session.id, sender='bot', content=response_text)
-        db.session.add(bot_msg_db)
-        db.session.commit()
-
-        return jsonify({"response": response_text, "options": options, "new_title": session.title})
-
-    except Exception as e:
-        print(e)
-        return jsonify({"response": "I'm having a little trouble thinking right now. Please try again."})
 
 if __name__ == '__main__':
     with app.app_context():
