@@ -123,16 +123,29 @@ def extract_symptoms(user_text):
     return detected
 
 def get_next_question(current_symptoms):
-    if 'chest_pain' in current_symptoms and 'breathlessness' not in current_symptoms and 'sweating' not in current_symptoms:
-        return ("Chest pain can be serious. Are you experiencing difficulty breathing or sweating?", "Yes Difficulty Breathing,Yes Sweating,No just Pain", "clarifying_chest")
-    if 'high_fever' in current_symptoms and 'chills' in current_symptoms and 'muscle_pain' not in current_symptoms:
-        return ("With fever and chills, do you also have body aches or excessive sweating?", "Yes Body Ache,Yes Sweating,No", "clarifying_malaria")
-    if 'polyuria' in current_symptoms or 'excessive_hunger' in current_symptoms:
+    # Rule 1: Chest Pain -> Heart Attack Check
+    if 'chest_pain' in current_symptoms and 'checked_chest' not in current_symptoms:
+        if 'breathlessness' not in current_symptoms and 'sweating' not in current_symptoms:
+            return ("Chest pain can be serious. Are you experiencing difficulty breathing or sweating?", "Yes Difficulty Breathing,Yes Sweating,No just Pain", "clarifying_chest")
+    
+    # Rule 2: Fever + Chills -> Malaria Check
+    if 'high_fever' in current_symptoms and 'chills' in current_symptoms and 'checked_malaria' not in current_symptoms:
+        if 'muscle_pain' not in current_symptoms:
+            return ("With fever and chills, do you also have body aches or excessive sweating?", "Yes Body Ache,Yes Sweating,No", "clarifying_malaria")
+    
+    # Rule 3: Diabetes Check
+    if ('polyuria' in current_symptoms or 'excessive_hunger' in current_symptoms) and 'checked_diabetes' not in current_symptoms:
         return ("Have you noticed sudden weight loss or blurry vision?", "Yes Weight Loss,Yes Blurry Vision,No", "clarifying_diabetes")
-    if 'headache' in current_symptoms and 'migraine' not in current_symptoms:
+    
+    # Rule 4: Headache -> Migraine Check
+    if 'headache' in current_symptoms and 'migraine' not in current_symptoms and 'checked_headache' not in current_symptoms:
         return ("To help me pinpoint the cause, where exactly is the pain?", "Forehead (Sinus),One Side (Migraine),Back of Head,All Over", "clarifying_headache")
-    if 'high_fever' in current_symptoms and 'skin_rash' not in current_symptoms:
-        return ("Are you also shivering or do you see a rash?", "Yes Shivering,No,I have a Rash too", "clarifying_fever")
+    
+    # Rule 5: Fever -> Viral/Rash Check
+    if 'high_fever' in current_symptoms and 'checked_fever' not in current_symptoms:
+        if 'skin_rash' not in current_symptoms:
+            return ("Are you also shivering or do you see a rash?", "Yes Shivering,I have a Rash too,No", "clarifying_fever")
+            
     return None
 
 def get_disease_details(disease_name):
@@ -386,22 +399,63 @@ def predict():
     else:
         new_symptoms = raw_result if raw_result else []
 
-    # --- FIX 2: ANSWER MAPPER (KEYWORD MAPPING) ---
+   # --- FIX 2: EXPANDED ANSWER MAPPER ---
     user_lower = user_text.lower()
     print(f"DEBUG: Checking keywords in '{user_lower}'") 
 
+    # 1. Headache/Sinus Logic
     if "sinus" in user_lower:
-        print("DEBUG: Found keyword SINUS -> Adding sinus_pressure")
         new_symptoms.append("sinus_pressure")
-            
-    elif "migraine" in user_lower:
-        print("DEBUG: Found keyword MIGRAINE")
+        new_symptoms.append("checked_headache") # Stop asking
+    elif "migraine" in user_lower or "one side" in user_lower:
         new_symptoms.append("visual_disturbances")
         new_symptoms.append("irritability")
-
+        new_symptoms.append("checked_headache")
     elif "back of head" in user_lower:
-        print("DEBUG: Found keyword BACK OF HEAD")
         new_symptoms.append("stiff_neck")
+        new_symptoms.append("checked_headache")
+    elif "all over" in user_lower:
+        new_symptoms.append("checked_headache") # Just generic headache
+
+    # 2. Fever/Malaria Logic
+    elif "body ache" in user_lower:
+        new_symptoms.append("muscle_pain")
+        new_symptoms.append("checked_malaria")
+    elif "shivering" in user_lower:
+        new_symptoms.append("chills")
+        new_symptoms.append("checked_fever")
+    elif "rash" in user_lower:
+        new_symptoms.append("skin_rash")
+        new_symptoms.append("checked_fever")
+    
+    # 3. Chest/Heart Logic
+    elif "difficulty breathing" in user_lower:
+        new_symptoms.append("breathlessness")
+        new_symptoms.append("checked_chest")
+    elif "sweating" in user_lower:
+        new_symptoms.append("sweating")
+        new_symptoms.append("checked_chest")
+        new_symptoms.append("checked_malaria") # Covers both
+        
+    # 4. Diabetes Logic
+    elif "weight loss" in user_lower:
+        new_symptoms.append("weight_loss")
+        new_symptoms.append("checked_diabetes")
+    elif "blurry" in user_lower:
+        new_symptoms.append("visual_disturbances")
+        new_symptoms.append("checked_diabetes")
+
+    # 5. THE "NO" LOGIC (Stop Loops)
+    elif "no" in user_lower:
+        # If user says "No", we mark the active questions as "checked"
+        # so they don't appear again.
+        new_symptoms.append("checked_chest")
+        new_symptoms.append("checked_malaria")
+        new_symptoms.append("checked_diabetes")
+        new_symptoms.append("checked_fever")
+        new_symptoms.append("checked_headache")
+        print("DEBUG: User said NO -> Skipping clarifying questions")
+    # ----------------------------------
     # ----------------------------------
     
     # Merge and Save
