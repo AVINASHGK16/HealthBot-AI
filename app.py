@@ -460,7 +460,7 @@ def predict():
                 
                 # --- FIX 4: GENERATE CARD WITH MOBILE-FRIENDLY MAP LINK ---
                 bot_response = f"""
-                <div class="bg-teal-50 dark:bg-slate-700/50 p-4 rounded-xl border border-teal-100 dark:border-slate-600 mb-2">
+                <div class="bg-teal-50 dark:bg-slate-700/50 p-4 rounded-xl border border-teal-100 dark:border-slate-600 mb-6 shadow-sm"> 
                     <div class="flex items-center gap-3 mb-3 border-b border-teal-200 dark:border-slate-600 pb-2">
                         <div class="w-10 h-10 bg-teal-100 dark:bg-teal-900 rounded-full flex items-center justify-center text-teal-600 dark:text-teal-400">
                             <i class="fa-solid fa-user-doctor text-lg"></i>
