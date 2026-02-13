@@ -1,6 +1,7 @@
- HealthBot AI
-An intelligent, machine-learning-powered healthcare chatbot designed to help users identify potential medical conditions based on their symptoms. Built with Flask and a Random Forest Classifier, HealthBot AI interacts with users, asks smart clarifying questions, and provides educational medical insights along with downloadable consultation reports.
-
+🚀 AI Health Bot — Symptom-based disease prediction chatbot  
+🛠 Tech: Python, Flask, HTML/CSS/JS, Random Forest  
+🌐 Live Demo: https://huggingface.co/spaces/avinashgk/healthaibot 
+📦 Features: Chatbot UI, disease prediction, login system
 
 ✨ Key Features
  Smart Symptom Extraction: Uses natural language keyword mapping to identify symptoms from conversational user input.
